@@ -57,42 +57,48 @@ with tab_owner:
              | (complaint & (df["rating"] >= HIGH_RATING)) \
              | (df["label"] == "unclear")
 
-        st.subheader("What are customers saying?")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Comments", len(df))
-        m2.metric("Happy", f"{(df['label'] == 'happy').mean():.0%}")
-        m3.metric("Average stars", f"{df['rating'].mean():.1f}")
-        m4.metric("Read carefully", int(flag.sum()))
+        # The business question: what is the main reason buyers are unhappy?
+        st.subheader("What should we fix first?")
+        complaints = df[complaint]
+        top = complaints["label"].value_counts()
 
-        col1, col2, col3 = st.columns(3)
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Complaints", f"{len(complaints)} of {len(df)}")
+        m2.metric("Top problem", top.index[0] if len(top) else "none yet",
+                  f"{top.iloc[0] / len(complaints):.0%} of complaints" if len(top) else None,
+                  delta_color="off")
+        m3.metric("Need manual review", int(flag.sum()))
+
+        if len(top):
+            st.write(f"**Fix first: {top.index[0]}.** It is the most common reason buyers complain.")
+
+        col1, col2 = st.columns(2)
 
         with col1:
-            st.caption("Number of comments by label")
-            counts = df["label"].value_counts().rename_axis("label").reset_index(name="count")
+            st.caption("Complaints by reason (happy comments not included)")
+            counts = top.rename_axis("label").reset_index(name="count")
             fig = px.bar(counts, x="label", y="count", color="label", text="count",
                          color_discrete_map=COLORS)
-            fig.update_layout(showlegend=False, xaxis_title=None, yaxis_title="Comments")
+            fig.update_layout(showlegend=False, xaxis_title=None, yaxis_title="Complaints")
             st.plotly_chart(fig, width="stretch")
 
         with col2:
-            st.caption("Average stars by label")
-            avg = df.groupby("label")["rating"].mean().round(1).reset_index()
+            st.caption("Average stars by label: which problem hurts ratings the most")
+            avg = df.groupby("label")["rating"].mean().round(1).sort_values().reset_index()
             fig = px.bar(avg, x="label", y="rating", color="label", text="rating",
                          color_discrete_map=COLORS, range_y=[0, 5])
             fig.update_layout(showlegend=False, xaxis_title=None, yaxis_title="Average stars")
             st.plotly_chart(fig, width="stretch")
 
-        with col3:
-            st.caption("Stars given, colored by label")
-            by_stars = df.groupby(["rating", "label"]).size().reset_index(name="count")
-            fig = px.bar(by_stars, x="rating", y="count", color="label", color_discrete_map=COLORS)
-            fig.update_layout(xaxis_title="Stars", yaxis_title="Comments", legend_title_text=None)
-            st.plotly_chart(fig, width="stretch")
-
-        st.subheader("Read these carefully")
+        st.subheader(f"Need manual review ({int(flag.sum())})")
         st.caption("The label and the rating disagree (happy with a low rating, a complaint with a high "
                    "rating), or the label is unclear.")
-        st.dataframe(df[flag], hide_index=True, width="stretch")
+        if not flag.any():
+            st.success("Nothing to review right now.")
+        for _, row in df[flag].iterrows():
+            with st.container(border=True):
+                st.markdown(f"**{'★' * int(row['rating'])}{'☆' * (5 - int(row['rating']))}** · label: `{row['label']}`")
+                st.write(row["comment"])
 
         with st.expander("All feedback"):
             st.dataframe(df, hide_index=True, width="stretch")
